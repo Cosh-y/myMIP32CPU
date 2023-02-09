@@ -31,18 +31,19 @@
 `define aluXOR      4'b1010
 `define aluFree     4'b1111
 
-`define none 4'b0000
-`define ALUM_rdD 4'b0001
-`define LAddrM_rdD 4'b0010
-`define HLE_rdD 4'b0011
-`define HLM_rdD 4'b0100
-`define CP0M_rdD 4'b0101
+`define none        4'b0000
+`define ALUM_rdD    4'b0001
+`define LAddrM_rdD  4'b0010
+`define HLE_rdD     4'b0011
+`define HLM_rdD     4'b0100
+`define CP0M_rdD    4'b0101
+`define wdW_rdD     4'b0110
 
-`define ALUM_ALUAB 4'b0001
-`define wdW_ALUAB 4'b0010
-`define LAddrM_ALUAB 4'b0011
-`define HLM_ALUAB 4'b0100
-`define CP0M_ALUAB 4'b0101
+`define ALUM_ALUAB  4'b0001
+`define wdW_ALUAB   4'b0010
+`define LAddrM_ALUAB    4'b0011
+`define HLM_ALUAB   4'b0100
+`define CP0M_ALUAB  4'b0101
 
 `define fullWord 2'b00
 `define halfWord 2'b01

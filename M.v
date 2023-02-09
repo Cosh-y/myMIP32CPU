@@ -20,7 +20,10 @@
 //////////////////////////////////////////////////////////////////////////////////
 module M(
 	input clk,
+	input reset,
 	input respon,
+	input M_allowin,
+	input E_to_M_valid,
 	input linkE,
 	input RegWriteE,
 	input MemWriteE,
@@ -44,6 +47,7 @@ module M(
 	input CP0WeE,
 	input CP0ToRegE,
 	input backE,
+	output reg M_valid,
 	output linkM,
 	output RegWriteM,
 	output MemWriteM,
@@ -80,32 +84,14 @@ module M(
 	reg [4:0] r_ExcCode;
 	 
 	always@(posedge clk) begin
-		if(respon) begin
-			r_link <= 0;
-			r_RegWrite <= 0;
-			r_MemWrite <= 0;
-			r_MemOrALU <= 0;
-			r_MemOutSel <= 0;
-			r_MemInSel <= 0;
-			r_linkAddr <= 0;
-			r_ALUout <= 0;
-			r_rd2 <= 0;
-			r_pc <= 0;
-			r_A2 <= 0;
-			r_rd <= 0;
-			r_A3 <= 0;
-			r_HI <= 0;
-			r_LO <= 0;
-			r_HLToReg <= 0;
-			r_HIRead <= 0;
-			r_exl <= 0;
-			r_ExcCode <= 0;
-			r_BD <= 0;
-			r_CP0We <= 0;
-			r_CP0ToReg <= 0;
-			r_back <= 0;
+		if(reset || respon) begin
+			M_valid <= 0;
 		end
-		else begin
+		else if(M_allowin) begin
+			M_valid <= E_to_M_valid;
+		end
+
+		if(E_to_M_valid && M_allowin) begin
 			r_link <= linkE;
 			r_RegWrite <= RegWriteE;
 			r_MemWrite <= MemWriteE;
@@ -115,7 +101,6 @@ module M(
 			r_linkAddr <= linkAddrE;
 			r_ALUout <= ALUoutE;
 			r_rd2 <= rd2E;
-			r_pc <= pcE;
 			r_A2 <= A2E;
 			r_rd <= rdE;
 			r_A3 <= A3E;
@@ -125,11 +110,13 @@ module M(
 			r_HIRead <= HIReadE;
 			r_exl <= EXLE;
 			r_ExcCode <= ExcCodeE;
-			r_BD <= BDE;
 			r_CP0We <= CP0WeE;
 			r_CP0ToReg <= CP0ToRegE;
 			r_back <= backE;
 		end
+
+		r_pc <= pcE;
+		r_BD <= BDE;
 	end
 	
 	assign linkM = r_link;

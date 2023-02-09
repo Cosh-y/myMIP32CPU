@@ -20,8 +20,10 @@
 //////////////////////////////////////////////////////////////////////////////////
 module E(
 	input clk,
-	input flush,
+	input reset,
 	input respon,
+	input E_allowin,
+	input D_to_E_valid,
 	input linkD,
 	input RegWriteD,
 	input MemWriteD,
@@ -55,6 +57,7 @@ module E(
 	input CP0WeD,
 	input CP0ToRegD,
 	input backD,
+	output reg E_valid,
 	output linkE,
 	output RegWriteE,
 	output MemWriteE,
@@ -102,44 +105,16 @@ module E(
 	reg r_MDsign;
 	reg r_sel, r_BD, r_CP0We, r_CP0ToReg, r_back;
 	reg [4:0] r_ExcCode;
-	 
+
 	always@(posedge clk) begin
-		r_MemOrALU <= MemOrALUD;
-		r_IorR <= IorRD;
-		r_RorSa <= RorSaD;
-		r_linkAddr <= linkAddrD;
-		r_I <= ID;
-		r_rd1 <= rd1D;
-		r_rd2 <= rd2D;
-		r_pc <= pcD;
-		r_BD <= BDD;
-		r_MemOutSel <= MemOutSelD;
-		r_MemInSel <= MemInSelD;
-		r_HIWrite <= HIWriteD;
-		r_HIRead <= HIReadD;
-		r_MDop <= MDopD;
-		r_MDsign <= MDsignD;
-		if(flush || respon) begin
-			r_link <= 0;
-			r_ALUop <= `aluFree;
-			r_overJudge <= 0;
-			r_RegWrite <= 0;
-			r_MemWrite <= 0;
-			r_A1 <= 0;
-			r_A2 <= 0;
-			r_rd <= 0;
-			r_sa <= 0;
-			r_A3 <= 0;
-			r_HLToReg <= 0;
-			r_immWrite <= 0;
-			r_start <= 0;
-			r_sel <= 0;
-			r_ExcCode <= 0;
-			r_CP0We <= 0;
-			r_CP0ToReg <= 0;
-			r_back <= 0;
+		if(reset || respon) begin
+			E_valid <= 0;
 		end
-		else begin
+		else if(E_allowin) begin
+			E_valid <= D_to_E_valid;
+		end
+
+		if(D_to_E_valid && E_allowin) begin
 			r_link <= linkD;
 			r_ALUop <= ALUopD;
 			r_overJudge <= overJudgeD;
@@ -158,7 +133,23 @@ module E(
 			r_CP0We <= CP0WeD;
 			r_CP0ToReg <= CP0ToRegD;
 			r_back <= backD;
+			r_MemOrALU <= MemOrALUD;
+			r_IorR <= IorRD;
+			r_RorSa <= RorSaD;
+			r_linkAddr <= linkAddrD;
+			r_I <= ID;
+			r_rd1 <= rd1D;
+			r_rd2 <= rd2D;
+			r_MemOutSel <= MemOutSelD;
+			r_MemInSel <= MemInSelD;
+			r_HIWrite <= HIWriteD;
+			r_HIRead <= HIReadD;
+			r_MDop <= MDopD;
+			r_MDsign <= MDsignD;
 		end
+
+		r_pc <= pcD;
+		r_BD <= BDD;
 	end
 	
 	assign linkE = r_link;

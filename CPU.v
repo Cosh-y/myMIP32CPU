@@ -53,28 +53,38 @@ module CPU(
 );
 
 	wire stopF, stopD;
+	reg [31:0] pc;
+	reg F_valid;
+	wire validin = 1; // 初始流水级的有效信号
+	wire F_allowin, F_ready_go, F_to_D_valid;
+	wire D_allowin;
+	assign F_allowin = !F_valid || F_ready_go && D_allowin || respon || reset;
+	assign F_ready_go = 1;
+	assign F_to_D_valid = F_valid && F_ready_go;
 /******             F               ******/
 	wire [4:0] ExcCodeF, ExcCodeD, ExcCodeE, ExcCodeM;
 	wire EXLF, EXLD, EXLE, EXLM;
 	wire BDD, BDE, BDM;
-	reg [31:0] pc, r_pc;   
-	reg [4:0] r_ExcCode;
-	reg r_sel, r_BD;
+	
 	wire [31:0] instr, realRd1, realRd2, signExt;
 	wire eq, greater_eq_zero, greater_zero;
 	wire branch, nbranch, gez_br, gz_br, lez_br, lz_br, jump, linkD, Return, backD;
 	always@(posedge clk) begin
-		if(reset) begin
-			pc <= 32'hBFC00000;
+		if(reset || respon) begin
+			F_valid <= 1;
 		end
-		else if(respon) begin
-			pc <= 32'hBFC00380;
+		else if(F_allowin) begin
+			F_valid <= validin;
 		end
-		else if(stopF) begin
-			pc <= pc;
-		end
-		else begin
-			if(backD == 1) begin
+
+		if(validin && F_allowin) begin
+			if(reset) begin
+				pc <= 32'hBFC00000;
+			end
+			else if(respon) begin
+				pc <= 32'hBFC00380;
+			end
+			else if(backD == 1) begin
 				pc <= backPC + 4;
 			end
 			else if(jump == 1) begin
@@ -89,9 +99,6 @@ module CPU(
 			else if((gz_br == 1 && greater_zero == 1) || (greater_zero == 0 && lez_br == 1)) begin
 				pc <= pc + (signExt << 2);
 			end
-			// else if(linkD == 1) begin
-			// 	pc <= {pc[31:28], DInst[25:0], 2'b00};
-			// end
 			else if(Return == 1) begin
 				pc <= realRd1;
 			end
@@ -107,28 +114,25 @@ module CPU(
 							((pc >= 32'h80000000 && pc <= 32'h9FFFFFFF) ? (pc - 32'h80000000) : (pc - 32'hA0000000)) ;
 	assign EXLF = (inst_sram_addr[1:0] != 0) ? 1 : 0; 	// 本质上，这里判断虚拟地址有效性，用物理地址做等价判断
 	assign ExcCodeF = (EXLF) ? 5'b00100 : 0;
-	
+
+	reg [31:0] r_pc;   
+	reg [4:0] r_ExcCode;
+	reg r_sel, r_BD;
+	reg D_valid;
+	wire E_allowin, D_ready_go, D_to_E_valid;
+	assign D_allowin = !D_valid || D_ready_go && E_allowin;
+	assign D_ready_go = !stopD;
+	assign D_to_E_valid = D_valid && D_ready_go;
 /*****              D reg                 ******/
 	always@(posedge clk) begin
-		if(reset == 1) begin
-			r_pc <= 0;
-			r_sel <= 0;
-			r_ExcCode <= 0;
-			r_BD <= 0;
+		if(reset || respon) begin
+			D_valid <= 0;
 		end
-		else if(respon == 1) begin
-			r_pc <= 0;
-			r_sel <= 0;
-			r_ExcCode <= 0;
-			r_BD <= 0;
+		else if(D_allowin) begin
+			D_valid <= F_to_D_valid;
 		end
-		else if(stopD == 1) begin
-			r_pc <= r_pc;
-			r_sel <= r_sel;
-			r_ExcCode <= r_ExcCode;
-			r_BD <= r_BD;
-		end
-		else begin
+
+		if(F_to_D_valid && D_allowin) begin
 			r_pc <= (backD == 1) ? backPC : pc; //这里在cpu里继续传递的pc是虚拟地址
 			r_sel <= EXLF;
 			r_ExcCode <= ExcCodeF;
@@ -164,13 +168,11 @@ module CPU(
 	assign normalInst = inst_sram_rdata;									// 不考虑reset, respon, stopD下读出的指令
 	always@(posedge clk) begin												// 保存上一个周期
 		keepInst <= DInst;													// 的指令
-		keepStopD <= stopD;													// 与控制信号
-		keepRespon <= respon;												// 以决定本周期应该运行什么指令
-		keepReset <= reset;
+		keepStopD <= stopD;													// 与控制信号以决定本周期应该运行哪条指令
 	end
 	
 	assign preInst = (keepStopD == 1) ? keepInst : normalInst;
-	assign DInst = (keepRespon == 1 || keepReset == 1) ? 0 : preInst; 		// 最终需要解码即CPU上将运行的指令机器码
+	assign DInst = (!D_valid) ? 0 : preInst; 		// 最终需要解码即CPU上将运行的指令机器码
 	
 	assign imm = DInst[15:0];
 	assign rs = DInst[25:21];
@@ -236,12 +238,12 @@ module CPU(
 						(undefine == 1) ? 5'b01010 : 0;
 	
 	wire [31:0] pcW, wdW, CP0OutM, CP0OutW;
-	wire RegWriteW;
+	wire W_valid, RegWriteW;
 	wire [4:0] A3W;
 	GRF grf(
 			  .clk(clk),
 			  .reset(reset),
-			  .RegWrite(RegWriteW),
+			  .RegWrite(RegWriteW & W_valid),
 			  .RegAddr1(rs),
 			  .RegAddr2(rt),
 			  .RegAddr3(A3W),
@@ -253,20 +255,24 @@ module CPU(
 	assign ID = (Ext == 2'b00) ? ZeroExt :
 				(Ext == 2'b01) ? atHigh  :
 				(Ext == 2'b10) ? signExt : 0;
-	//wire [31:0] realRd1, realRd2; 锟斤拷F锟斤拷锟斤拷锟斤拷
+	
 	wire [31:0] ALUoutM, linkAddrM;
-	assign realRd1 = (beqRAW1 == `none) ? rd1D :
-						  (beqRAW1 == `ALUM_rdD) ? ALUoutM:
-						  (beqRAW1 == `LAddrM_rdD) ? linkAddrM:
-						  (beqRAW1 == `HLE_rdD) ? HLE:
-						  (beqRAW1 == `HLM_rdD) ? HLM: 
-						  (beqRAW1 == `CP0M_rdD) ? CP0OutM : 0;
-	assign realRd2 = (beqRAW2 == `none) ? rd2D :
-						  (beqRAW2 == `ALUM_rdD) ? ALUoutM:
-						  (beqRAW2 == `LAddrM_rdD) ? linkAddrM:
-						  (beqRAW2 == `HLE_rdD) ? HLE:
-						  (beqRAW2 == `HLM_rdD) ? HLM: 
-						  (beqRAW2 == `CP0M_rdD) ? CP0OutM : 0;
+	assign realRd1 = (beqRAW1 == `none) 	? rd1D :
+					(beqRAW1 == `ALUM_rdD) 	? ALUoutM:
+					(beqRAW1 == `LAddrM_rdD) ? linkAddrM:
+					(beqRAW1 == `HLE_rdD) 	? HLE:
+					(beqRAW1 == `HLM_rdD) 	? HLM: 
+					(beqRAW1 == `CP0M_rdD) 	? CP0OutM :
+					(beqRAW1 == `wdW_rdD) 	? wdW : 0;
+
+	assign realRd2 = (beqRAW2 == `none) 	? rd2D :
+					(beqRAW2 == `ALUM_rdD) 	? ALUoutM:
+					(beqRAW2 == `LAddrM_rdD) ? linkAddrM:
+					(beqRAW2 == `HLE_rdD) 	? HLE:
+					(beqRAW2 == `HLM_rdD) 	? HLM: 
+					(beqRAW2 == `CP0M_rdD) 	? CP0OutM :
+					(beqRAW2 == `wdW_rdD) 	? wdW : 0;
+
 	assign eq = (realRd1 == realRd2) ? 1 : 0;
 	assign greater_eq_zero = (realRd1[31] == 0) ? 1 : 0;
 	assign greater_zero = (realRd1[31] == 0 && realRd1 > 0) ? 1 : 0; 
@@ -289,10 +295,18 @@ module CPU(
 	wire CP0WeE, CP0WeM, CP0ToRegE, backE;
 	wire [4:0] rdE, rdM;
 	
+	wire E_valid;
+	wire M_allowin, E_ready_go, E_to_M_valid;
+	assign E_allowin = !E_valid || E_ready_go && M_allowin;
+	assign E_ready_go = 1;
+	assign E_to_M_valid = E_valid && E_ready_go;
+
 	E eReg(
 			.clk(clk),
-			.flush(flushE),
+			.reset(reset),
 			.respon(respon),
+			.E_allowin(E_allowin),
+			.D_to_E_valid(D_to_E_valid),
 			.linkD(linkD),
 			.RegWriteD(RegWriteD),
 			.MemWriteD(MemWriteD),
@@ -305,8 +319,8 @@ module CPU(
 			.overJudgeD(overJudgeD),
 			.linkAddrD(linkAddrD),
 			.ID(ID),
-			.rd1D(rd1D),
-			.rd2D(rd2D),
+			.rd1D(realRd1),
+			.rd2D(realRd2),
 			.pcD(pcD),
 			.A1D(rs),
 			.A2D(rt),
@@ -326,6 +340,7 @@ module CPU(
 			.CP0WeD(CP0WeD),
 			.CP0ToRegD(CP0ToRegD),
 			.backD(backD),
+			.E_valid(E_valid),
 			.linkE(linkE),
 			.RegWriteE(RegWriteE),
 			.MemWriteE(preMemWriteE),
@@ -403,13 +418,14 @@ module CPU(
 					 .startE(startE),
 					 .startD(startD),
 					 .immWriteD(immWriteD),
+					 .E_valid(E_valid),
+					 .M_valid(M_valid),
+					 .W_valid(W_valid),
 					 .ALURAW1(ALURAW1),
 					 .ALURAW2(ALURAW2),
 					 .beqRAW1(beqRAW1),
 					 .beqRAW2(beqRAW2),
-					 .stopF(stopF),
-					 .stopD(stopD),
-					 .flushE(flushE)
+					 .stopD(stopD)
 					);
 					
 					
@@ -437,30 +453,16 @@ module CPU(
 			  .A(A),
 			  .B(B),
 			  .ALUop(ALUopE),
-			  .overJudge(overJudgeE),
+			  .overJudge(overJudgeE & E_valid),
 			  .out(ALUoutE),
 			  .over(over)
 			 );
 			 
-	/*MD md(
-			.clk(clk),
-			.reset(reset),
-			.operand1(A),
-			.operand2(B),
-			.op(MDopE),
-			.immWrite(immWriteE),
-			.HIWrite(HIWriteE),
-			.start(startE),
-			.respon(respon),
-			.busy(busy),
-			.LO(LOE),
-			.HI(HIE)
-			);*/
 	wire in_valid, out_valid;
 	wire [31:0] out_res0, out_res1;
 	reg [31:0] HI, LO;
 	wire out_ready = 1;
-	assign in_valid = (startE && ~respon);
+	assign in_valid = (E_valid && startE && ~respon);
 	MulDivUnit MulDivUnit(
 		 .clk(clk),
 		 .reset(reset),
@@ -477,13 +479,13 @@ module CPU(
 	);
 	assign busy = ~in_ready;
 	
-	/****   HI,LO 锟斤拷锟斤拷锟斤拷  ****/
+	/****   HI,LO 寄存器写入逻辑       ****/
 	always@(posedge clk) begin
 		if(out_valid) begin
 			HI <= out_res1;
 			LO <= out_res0;
 		end
-		else if(immWriteE && ~respon) begin
+		else if(E_valid && immWriteE && ~respon) begin
 			if(HIWriteE) begin
 				HI <= A;  //operand1, rs
 				LO <= LO;
@@ -502,9 +504,8 @@ module CPU(
 	assign HIE = HI;
 	assign LOE = LO;
 	assign HLE = (HIReadE == 1) ? HIE : LOE;
-	assign MemToRegE = (RegWriteE == 1 && MemOrALUE == 0 && linkE == 0 && CP0ToRegE == 0 && HLToRegE == 0) ? 1: 0; 
+	assign MemToRegE = (E_valid && RegWriteE && !MemOrALUE && !linkE && !CP0ToRegE && !HLToRegE ) ? 1: 0; 
 	wire outOfDiv, AdEL, AdES;
-	assign outOfDiv = ~((ALUoutE >= 0 && ALUoutE <= 32'h2fff) || (ALUoutE >= 32'h7f00 && ALUoutE <= 32'h7f0b) || (ALUoutE >= 32'h7f10 && ALUoutE <= 32'h7f1b) || (ALUoutE >= 32'h7f20 && ALUoutE <= 32'h7f23));
 	assign AdEL = 	(MemToRegE == 1 && MemOutSelE == `MemOut_fullWord && ALUoutE[1:0] != 2'b00) ? 1 :
 					(MemToRegE == 1 && (MemOutSelE == `MemOut_half_signExt || MemOutSelE == `MemOut_half_zeroExt) && ALUoutE[0] != 0) ? 1 : 0;
 					// (MemToRegE == 1 && (MemOutSelE == `quatWord || MemOutSelE == `halfWord) && ALUoutE >= 32'h00007f00 && ALUoutE <= 32'h00007f0b) ? 1 :
@@ -519,7 +520,7 @@ module CPU(
 					// (preMemWriteE == 1 && over == 1) ? 1 :
 					// (preMemWriteE == 1 && ((ALUoutE >= 32'h7f08 && ALUoutE <= 32'h7f0b) || (ALUoutE >= 32'h7f18 && ALUoutE <= 32'h7f1b))) ? 1 :
 					// (preMemWriteE == 1 && outOfDiv == 1) ? 1 : 0;
-	assign MemWriteE = (EXLE == 0 && preMemWriteE == 1) ? 1 : 0;
+	assign MemWriteE = (!EXLE && preMemWriteE && E_valid) ? 1 : 0;
 	assign EXLE =   (selE == 1) ? 1 :
 			  		(AdES == 1) ? 1 :
 			  		(AdEL == 1) ? 1 :
@@ -540,10 +541,19 @@ module CPU(
 	wire HIReadM;
 	wire [31:0] HIM, LOM;
 	wire backM;
+
+	wire M_valid;
+	wire W_allowin, M_ready_go, M_to_W_valid;
+	assign M_allowin = !M_valid || M_ready_go && W_allowin;
+	assign M_ready_go = 1;
+	assign M_to_W_valid = M_valid && M_ready_go;
 	//
 	M mReg(
 			.clk(clk),
+			.reset(reset),
 			.respon(respon),
+			.M_allowin(M_allowin),
+			.E_to_M_valid(E_to_M_valid),
 			.linkE(linkE),
 			.RegWriteE(RegWriteE),
 			.MemWriteE(MemWriteE),
@@ -567,6 +577,7 @@ module CPU(
 			.CP0WeE(CP0WeE),
 			.CP0ToRegE(CP0ToRegE),
 			.backE(backE),
+			.M_valid(M_valid),
 			.linkM(linkM),
 			.RegWriteM(RegWriteM),
 			.MemWriteM(preMemWriteM),
@@ -597,25 +608,25 @@ module CPU(
 
 	wire [31:0] preData;
 	
-	assign EXL = EXLM;
+	assign EXL = EXLM & M_valid;
 	assign ExcCodeOut = ExcCodeM;
 	assign BD = BDM;
 	assign EPC = pcM;
 	assign VAddr = (pcM[1:0] == 2'b00) ? ALUoutM : pcM;
 	assign CP0Addr = rdM;
 	assign CP0WD = preData;				// readData2, GPR[rt]
-	assign CP0We = CP0WeM;
-	assign back = backM;
+	assign CP0We = CP0WeM & M_valid;
+	assign back = backM & M_valid;
 		
 	
 	assign CP0OutM = CP0RD;				//mfc0 -> GPR[rt]
 	assign MemOutW = data_sram_rdata;  
 	assign data_sram_en = 1;			//这里暂时不知道这个信号是干什么的 
-	assign MemWriteM = (preMemWriteM == 1 && respon == 0) ? 1 : 0;
+	assign MemWriteM = (M_valid && preMemWriteM == 1 && respon == 0) ? 1 : 0;
 	// output
 	assign data_sram_addr = (ALUoutM >= 32'h80000000 && ALUoutM <= 32'h9FFFFFFF) ? // 这里又进行了虚拟地址到物理地址的固定映射
 							(ALUoutM - 32'h80000000) : (ALUoutM - 32'hA0000000) ;
-	assign preData = (RegWriteW && A2M == A3W && A2M != 0) ? wdW : rd2M;
+	assign preData = (W_valid && RegWriteW && A2M == A3W && A2M != 0) ? wdW : rd2M;
 	assign data_sram_wdata =(MemInSelM == `fullWord) ? preData :
 							(MemInSelM == `halfWord && ALUoutM[1] == 0) ? {preData[15:0], preData[15:0]} :
 							(MemInSelM == `halfWord && ALUoutM[1] == 1) ? {preData[15:0], preData[15:0]} :
@@ -633,9 +644,7 @@ module CPU(
 							(MemInSelM == `quatWord && ALUoutM[1:0] == 2'b10) ? 4'b0100 :
 							(MemInSelM == `quatWord && ALUoutM[1:0] == 2'b11) ? 4'b1000 : 0;
 								  
-	// assign m_inst_addr = pcM;
-	// assign macroscopic_pc = pcM;
-	assign MemToRegM = (RegWriteM == 1 && MemOrALUM == 0 && linkM == 0 && CP0ToRegM == 0 && HLToRegM == 0) ? 1 : 0;
+	assign MemToRegM = (M_valid && RegWriteM == 1 && MemOrALUM == 0 && linkM == 0 && CP0ToRegM == 0 && HLToRegM == 0) ? 1 : 0;
 	assign HLM = (HIReadM == 1) ? HIM : LOM;
 	
 	
@@ -648,10 +657,17 @@ module CPU(
 	wire [31:0] HIW, LOW;
 	wire HLToRegW, HIReadW;
 	wire CP0ToRegW;
+
+	wire W_ready_go;
+	assign W_ready_go = 1;
+	assign W_allowin = !W_valid || W_ready_go;
 	W wReg(
 			.clk(clk),
-			.linkM(linkM),
+			.reset(reset),
 			.respon(respon),
+			.W_allowin(W_allowin),
+			.M_to_W_valid(M_to_W_valid),
+			.linkM(linkM),
 			.RegWriteM(RegWriteM),
 			.MemOrALUM(MemOrALUM),
 			.MemOutSelM(MemOutSelM),
@@ -665,6 +681,7 @@ module CPU(
 			.HLToRegM(HLToRegM),
 			.HIReadM(HIReadM),
 			.CP0ToRegM(CP0ToRegM),
+			.W_valid(W_valid),
 			.linkW(linkW),
 			.RegWriteW(RegWriteW),
 			.MemOrALUW(MemOrALUW),
@@ -703,6 +720,6 @@ module CPU(
 	
 	assign debug_wb_pc = pcW;
 	assign debug_wb_rf_wdata = wdW;
-	assign debug_wb_rf_wen = {4{RegWriteW}};
+	assign debug_wb_rf_wen = {4{RegWriteW & W_valid}};
 	assign debug_wb_rf_wnum = A3W;
 endmodule

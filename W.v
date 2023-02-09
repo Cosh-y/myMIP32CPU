@@ -20,8 +20,11 @@
 //////////////////////////////////////////////////////////////////////////////////
 module W(
 	input clk,
-	input linkM,
+	input reset,
 	input respon,
+	input W_allowin,
+	input M_to_W_valid,
+	input linkM,
 	input RegWriteM,
 	input MemOrALUM,
 	input [2:0] MemOutSelM,
@@ -35,6 +38,7 @@ module W(
 	input HLToRegM,
 	input HIReadM,
 	input CP0ToRegM,
+	output reg W_valid,
 	output linkW,
 	output RegWriteW,
 	output MemOrALUW,
@@ -59,26 +63,30 @@ module W(
 	reg r_HLToReg, r_HIRead, r_CP0ToReg;
 	
 	always@(posedge clk) begin
-		if(respon) begin
-			r_RegWrite <= 0;
+		if(reset || respon) begin
+			W_valid <= 0;
 		end
-		else begin
+		else if(W_allowin)begin
+			W_valid <= M_to_W_valid;
+		end
+
+		if(W_allowin) begin
 			r_RegWrite <= RegWriteM;
+			r_link <= linkM;
+			r_MemOrALU <= MemOrALUM;
+			r_MemOutSel <= MemOutSelM;
+			r_linkAddr <= linkAddrM;
+			r_ALUout <= ALUoutM;
+			//r_MemOut <= MemOutM;
+			r_CP0Out <= CP0OutM;
+			r_pc <= pcM;
+			r_A3 <= A3M;
+			r_HI <= HIM;
+			r_LO <= LOM;
+			r_HLToReg <= HLToRegM;
+			r_HIRead <= HIReadM;
+			r_CP0ToReg <= CP0ToRegM;
 		end
-		r_link <= linkM;
-		r_MemOrALU <= MemOrALUM;
-		r_MemOutSel <= MemOutSelM;
-		r_linkAddr <= linkAddrM;
-		r_ALUout <= ALUoutM;
-		//r_MemOut <= MemOutM;
-		r_CP0Out <= CP0OutM;
-		r_pc <= pcM;
-		r_A3 <= A3M;
-		r_HI <= HIM;
-		r_LO <= LOM;
-		r_HLToReg <= HLToRegM;
-		r_HIRead <= HIReadM;
-		r_CP0ToReg <= CP0ToRegM;
 	end
 	
 	assign linkW = r_link;
