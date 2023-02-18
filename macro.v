@@ -44,6 +44,7 @@
 `define LAddrM_ALUAB    4'b0011
 `define HLM_ALUAB   4'b0100
 `define CP0M_ALUAB  4'b0101
+`define MOutM_ALUAB 4'b0110
 
 `define fullWord 2'b00
 `define halfWord 2'b01

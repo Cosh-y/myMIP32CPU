@@ -27,6 +27,7 @@ module W(
 	input linkM,
 	input RegWriteM,
 	input MemOrALUM,
+	input [31:0] MemOutM,
 	input [2:0] MemOutSelM,
 	input [31:0] linkAddrM,
 	input [31:0] ALUoutM,
@@ -42,6 +43,7 @@ module W(
 	output linkW,
 	output RegWriteW,
 	output MemOrALUW,
+	output [31:0] MemOutW,
 	output [2:0] MemOutSelW,
 	output [31:0] linkAddrW,
 	output [31:0] ALUoutW,
@@ -56,6 +58,7 @@ module W(
     );
 
 	reg r_link, r_RegWrite, r_MemOrALU;
+	reg [31:0] r_MemOut;
 	reg [2:0] r_MemOutSel;
 	reg [4:0] r_A3;
 	reg [31:0] r_linkAddr, r_ALUout, r_CP0Out, r_pc;
@@ -70,14 +73,14 @@ module W(
 			W_valid <= M_to_W_valid;
 		end
 
-		if(W_allowin) begin
+		if(M_to_W_valid && W_allowin) begin
 			r_RegWrite <= RegWriteM;
 			r_link <= linkM;
 			r_MemOrALU <= MemOrALUM;
 			r_MemOutSel <= MemOutSelM;
 			r_linkAddr <= linkAddrM;
 			r_ALUout <= ALUoutM;
-			//r_MemOut <= MemOutM;
+			r_MemOut <= MemOutM;
 			r_CP0Out <= CP0OutM;
 			r_pc <= pcM;
 			r_A3 <= A3M;
@@ -95,7 +98,7 @@ module W(
 	assign MemOutSelW = r_MemOutSel;
 	assign linkAddrW = r_linkAddr;
 	assign ALUoutW = r_ALUout;
-	//assign MemOutW = r_MemOut;
+	assign MemOutW = r_MemOut;
 	assign CP0OutW = r_CP0Out;
 	assign pcW = r_pc;
 	assign A3W = r_A3;

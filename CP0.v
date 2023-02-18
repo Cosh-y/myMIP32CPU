@@ -61,7 +61,6 @@ module CP0(
 							 
 	assign Req = (interrupt == 1) ? 1 :
 					(EXLSet == 1) ? 1 : 0;
-					 
 	always@(posedge clk) begin
 		if(reset) begin
 			SR <= 32'h00400000;
@@ -75,7 +74,8 @@ module CP0(
 				`EXL <= 1;
 				`ExcCode <= 0;
 				`BD <= BDIn;
-				if(BDIn == 1) EPC <= VPC - 4;
+				if(Cause[8] && SR[8] || Cause[9] && SR[9]) EPC <= VPC + 4;		// 对软中断进行了特殊处理，我对类SRAM握手的实现下，最多每两个周期出发一条指令，所以
+				else if(BDIn == 1) EPC <= VPC - 4;								// 软中断触发指令在M级写入Cause后，下一个周期VPC仍然是该指令的pc
 				else EPC <= VPC;
 			end
 			else if(EXLSet == 1) begin

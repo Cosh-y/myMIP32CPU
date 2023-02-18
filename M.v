@@ -115,8 +115,10 @@ module M(
 			r_back <= backE;
 		end
 
-		r_pc <= pcE;
-		r_BD <= BDE;
+		if(M_allowin) begin
+			r_pc <= pcE;
+			r_BD <= BDE;
+		end
 	end
 	
 	assign linkM = r_link;

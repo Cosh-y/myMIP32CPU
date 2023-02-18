@@ -33,36 +33,42 @@ module conflict(
     );
 	
 	always@(*) begin
-		if(M_valid && linkM == 1 && A1E == A3M && A3M != 0) begin
+		if(M_valid && linkM && A1E == A3M && A3M != 0) begin
 			ALURAW1 = `LAddrM_ALUAB;
 		end
-		else if(A1E == A3M && M_valid && HLToRegM == 1 && A1E != 0) begin
+		else if(A1E == A3M && M_valid && MemToRegM && A3M != 0) begin
+			ALURAW1 = `MOutM_ALUAB;
+		end
+		else if(A1E == A3M && M_valid && HLToRegM && A1E != 0)  begin
 			ALURAW1 = `HLM_ALUAB;
 		end
-		else if(A1E == A3M && M_valid && CP0ToRegM == 1 && A1E != 0) begin
+		else if(A1E == A3M && M_valid && CP0ToRegM && A1E != 0) begin // 考虑一下M级lw指令到E级ALU指令之间的转发和阻塞问题
 			ALURAW1 = `CP0M_ALUAB;
 		end
-		else if(A1E == A3M && M_valid && RegWriteM == 1 && A1E != 0) begin
+		else if(A1E == A3M && M_valid && RegWriteM && A1E != 0) begin
 			ALURAW1 = `ALUM_ALUAB;
 		end
-		else if(A1E == A3W && W_valid && RegWriteW == 1 && A1E != 0) begin
+		else if(A1E == A3W && W_valid && RegWriteW && A1E != 0) begin
 			ALURAW1 = `wdW_ALUAB;
 		end
 		else ALURAW1 = `none;
 		
-		if(M_valid && linkM == 1 && A2E == A3M && A3M != 0) begin
+		if(M_valid && linkM && A2E == A3M && A3M != 0) begin
 			ALURAW2 = `LAddrM_ALUAB;
 		end
-		else if(A2E == A3M && M_valid && HLToRegM == 1 && A2E != 0) begin
+		else if(A2E == A3M && M_valid && MemToRegM && A3M != 0) begin
+			ALURAW2 = `MOutM_ALUAB;
+		end
+		else if(A2E == A3M && M_valid && HLToRegM && A2E != 0)  begin
 			ALURAW2 = `HLM_ALUAB;
 		end
-		else if(A2E == A3M && M_valid && CP0ToRegM == 1 && A2E != 0) begin
+		else if(A2E == A3M && M_valid && CP0ToRegM && A2E != 0) begin
 			ALURAW2 = `CP0M_ALUAB;
 		end
-		else if(A2E == A3M && M_valid && RegWriteM == 1 && A2E != 0) begin
+		else if(A2E == A3M && M_valid && RegWriteM && A2E != 0) begin
 			ALURAW2 = `ALUM_ALUAB;
 		end
-		else if(A2E == A3W && W_valid && RegWriteW == 1 && A2E != 0) begin
+		else if(A2E == A3W && W_valid && RegWriteW && A2E != 0) begin
 			ALURAW2 = `wdW_ALUAB;
 		end
 		else ALURAW2 = `none;
@@ -84,12 +90,12 @@ module conflict(
 		else if((backD == 1) && ((E_valid && CP0WeE && rdE == 5'b01110) || (M_valid && CP0WeM && rdM == 5'b01110)))begin
 			stopD = 1;			
 		end
-		else if(A1D == A3E && MemToRegE == 1 && A3E != 0) begin
-			stopD = 1;			
-		end
-		else if(A2D == A3E && MemToRegE == 1 && A3E != 0 && MemWriteD == 0) begin
-			stopD = 1;			
-		end
+		// else if(A1D == A3E && MemToRegE == 1 && A3E != 0) begin
+		// 	stopD = 1;			
+		// end
+		// else if(A2D == A3E && MemToRegE == 1 && A3E != 0 && MemWriteD == 0) begin
+		// 	stopD = 1;			
+		// end
 		else if((busy == 1 || (startE && E_valid)) && (startD || immWriteD || HLToRegD)) begin
 			stopD = 1;			
 		end

@@ -147,9 +147,11 @@ module E(
 			r_MDop <= MDopD;
 			r_MDsign <= MDsignD;
 		end
-
-		r_pc <= pcD;
-		r_BD <= BDD;
+		
+		if(E_allowin) begin
+			r_pc <= pcD;
+			r_BD <= BDD;
+		end
 	end
 	
 	assign linkE = r_link;
