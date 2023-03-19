@@ -26,7 +26,7 @@ module CPU(
 	input respon,
 	
 	//inst sram-like 
-    output reg    inst_req     ,
+    output        inst_req     ,
     output        inst_wr      ,
     output [1 :0] inst_size    ,
     output [31:0] inst_addr    ,
@@ -74,11 +74,12 @@ module CPU(
 	wire D_allowin;
 	reg F_save_valid;
 	reg F_cancel;
+	reg ins_inst_req;
 	always@(posedge clk) begin
 		if(reset) begin
 			F_cancel <= 0;
 		end
-		else if(respon && !inst_req) begin
+		else if(respon && !ins_inst_req) begin
 			F_cancel <= 1;
 		end
 		else if(F_cancel && inst_data_ok)  begin
@@ -132,7 +133,7 @@ module CPU(
 		end
 	end
 /******                F                  ******/
-// F级寄存器包括PC和inst_req, F级内部的主要器件为inst_ram, 
+// F级寄存器包括PC和ins_inst_req, F级内部的主要器件为inst_ram, 
 // inst_ram输出的addr_ok与data_ok信号参与F级与D级两级流水线寄存器的控制
 	wire [4:0] ExcCodeF, ExcCodeD, ExcCodeE, ExcCodeM;
 	wire EXLF, EXLD, EXLE, EXLM;
@@ -197,22 +198,23 @@ module CPU(
 	end
 	
 	// 在CPU内进行虚拟地址到物理地址的转换，inst_sram_addr传出物理地址
-	assign inst_addr = (backD || s_backD) ? (backPC & 32'h1fffffff) : (pc & 32'h1fffffff);
+	assign inst_addr = (backD || s_backD) ? (backPC) : (pc);
 	assign inst_wr   = 0;
 	assign inst_wstrb = 4'b0000;
 	assign inst_size = 2'b10;
 	assign inst_wdata = 0;
 	always@(posedge clk) begin
 		if(reset || respon) begin			// 重置时发出请求
-			inst_req <= 1;
+			ins_inst_req <= 1;
 		end
 		else if(inst_addr_ok) begin			// 请求已被接收，停止请求
-			inst_req <= 0;
+			ins_inst_req <= 0;
 		end
 		else if(validin && F_allowin) begin	// 允许下一条指令进入F级，发出请求
-			inst_req <= 1;
+			ins_inst_req <= 1;
 		end
 	end
+	assign inst_req = ins_inst_req & !respon;
 	
 	assign EXLF = (inst_addr[1:0] != 0) ? 1 : 0; 	// 本质上，这里判断虚拟地址有效性，用物理地址做等价判断
 	assign ExcCodeF = (EXLF) ? 5'b00100 : 0;
@@ -646,7 +648,7 @@ module CPU(
 /******                    M reg                  ******/
 	
 	wire [4:0] A2M;
-	wire [31:0] rd2M, pcM; //锟斤拷锟斤拷锟截讹拷锟斤拷ALUoutM锟斤拷linkAddrM锟斤拷cft锟斤拷锟斤拷锟斤拷
+	wire [31:0] rd2M, pcM;
 	wire preMemWriteM;
 	wire [2:0] MemOutSelM;
 	wire [1:0] MemInSelM;
@@ -734,7 +736,7 @@ module CPU(
 	assign MemOutM = data_rdata;  
 	assign MemWriteM = (M_valid && preMemWriteM == 1 && respon == 0) ? 1 : 0;
 	// output
-	assign data_addr = (ALUoutM & 32'h1fffffff); // 这里又进行了虚拟地址到物理地址的固定映射
+	assign data_addr = ALUoutM;
 	always@(posedge clk) begin
 		if(reset || respon) begin
 			data_req <= 0;
