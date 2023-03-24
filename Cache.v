@@ -153,26 +153,23 @@ module Cache(
                 Hazard = 0;
             end
         end
-        else if (m_status == `IDLE && |wb_wstrb && valid && !op) begin
-            if (wb_tag == tag && wb_index == index && wb_offset[3:2] == offset[3:2]) begin
-                Hazard = 1;
-            end
-            else begin
-                Hazard = 0;
-            end
+        else if (m_status == `IDLE && |wb_wstrb && valid) begin
+            Hazard = 1;
         end
         else Hazard = 0;
     end
 
     // LFSR
     wire way_to_replace;
+    wire randWay       ;
     LFSR lfsr(
         .clk            (clk            ),
         .reset          (reset          ),
         .q              (               ),
-        .way_to_replace (way_to_replace )
+        .way_to_replace (randWay        )
     );
-
+    assign way_to_replace = (!way0_v) ? 0 :
+                            (!way1_v) ? 1 : randWay;
     // Request Buffer
     reg         rb_uncache;
     reg         rb_op     ;
@@ -197,23 +194,28 @@ module Cache(
     reg [ 1: 0] ret_num         ;
     reg         replace_way     ;
     reg [127:0] dirt_data       ;
+    reg [31: 0] replace_addr    ;
     reg         isDirt          ;
     reg [127:0] ret_data_store  ;
     wire         refill_wen     ;               // refill时的写使能
     wire [127:0] replace_data   ;               // 准备写回内存的脏数据
     wire [127:0] refill_data    ;               // 准备写入Cache的新数据
+    wire [31: 0] strobe         ;
+    assign strobe = {{8{rb_wstrb[3]}}, {8{rb_wstrb[2]}}, {8{rb_wstrb[1]}}, {8{rb_wstrb[0]}}};
     assign refill_wen = (ret_valid && ret_last && !rb_uncache);
     assign refill_data = (rb_op == 0) ? {ret_data, ret_data_store[127:32]} : 
-        (rb_offset[3:2] == 2'b00) ? {ret_data, ret_data_store[127:64], rb_wdata} :
-        (rb_offset[3:2] == 2'b01) ? {ret_data, ret_data_store[127:96], rb_wdata, ret_data_store[63:32]} :
-        (rb_offset[3:2] == 2'b10) ? {ret_data, rb_wdata, ret_data_store[95:32]} : {rb_wdata, ret_data_store[127:32]};
+        (rb_offset[3:2] == 2'b00) ? {ret_data, ret_data_store[127:64], (rb_wdata & strobe) | (ret_data_store[63:32] & ~strobe)} :
+        (rb_offset[3:2] == 2'b01) ? {ret_data, ret_data_store[127:96], (rb_wdata & strobe) | (ret_data_store[95:64] & ~strobe), ret_data_store[63:32]} :
+        (rb_offset[3:2] == 2'b10) ? {ret_data, (rb_wdata & strobe) | (ret_data_store[127:96] & ~strobe), ret_data_store[95:32]} : 
+        {(rb_wdata & strobe) | (ret_data & ~strobe), ret_data_store[127:32]};
     always @(posedge clk) begin
         if (m_status == `LOOKUP && !Cache_hit) begin
             ret_num         <= 0            ;
             isDirt          <= replace_dirt ;             // 保存脏位
             dirt_data       <= replace_data ;             // 保存脏数据准备写回内存
+            replace_addr    <= way_to_replace ? {way1_tag, rb_index, 4'b0000} : {way0_tag, rb_index, 4'b0000};  // 写回内存所用地址
             ret_data_store  <= 0            ;
-            replace_way     <=  way_to_replace;           // 保存 LFSR 确定要替换的路号
+            replace_way     <= way_to_replace;           // 保存 LFSR 确定要替换的路号
         end
         else if (ret_valid && ret_num < 2'b11 && !rb_uncache) begin // 
             ret_data_store <= {ret_data, ret_data_store[127:32]};
@@ -221,13 +223,13 @@ module Cache(
         end
     end
     // 完成写回操作
-    assign wr_addr = (rb_uncache) ? {rb_tag, rb_index, rb_offset} :
-                                    {rb_tag, rb_index, 4'b0000  } ;      // 这里我们写内存需要物理地址
+    assign wr_addr = (rb_uncache) ? {rb_tag, rb_index, rb_offset} :     //uncache时直接写入准确的地址，不考虑对齐，AXI从这里开始写，自行决定写入多少
+                                    replace_addr ;        // cache替换时给出一个四字对齐的地址，在cache模块中处理写入数据
     assign wr_data = (rb_uncache) ? {96'b0, rb_wdata} : dirt_data;                          // 一次性向AXI传回128位
-    assign wr_wstrb = {4{isDirt && wr_req}};              // 为何不是整行读写        另外，因为wr_req是保证了wr_rdy == 1是置高的，所以必然能写入
+    assign wr_wstrb = {4{isDirt && wr_req}};              // 这东西传出后没有被使用
     assign wr_type = !rb_uncache ? 3'b100 :
-                     (wb_wstrb == 4'b1111) ? 3'b010 :
-                     (wb_wstrb == 4'b1100 || wb_wstrb == 4'b0011) ? 3'b001 : 3'b000;
+                     (rb_wstrb == 4'b1111) ? 3'b010 :
+                     (rb_wstrb == 4'b1100 || rb_wstrb == 4'b0011) ? 3'b001 : 3'b000;
 
 
     // Write Buffer
@@ -272,11 +274,11 @@ module Cache(
     // wire [ 3: 0] way_offset;
     wire [31:12] way_wtag ;
     wire         way_setD ;
-    assign way_index = (m_status == `IDLE) ? index : 
+    assign way_index = (m_status == `IDLE && valid && !Hazard) ? index : 
                        (|wb_wstrb) ? wb_index : rb_index;
     // assign way_offset= (|wb_wstrb) ? wb_offset: rb_offset;
     assign way_wstrb = (|wb_wstrb) ? wb_wstrb : rb_wstrb;
-    assign way_wtag  = (|wb_wstrb) ? wb_tag   : rb_tag  ;
+    assign way_wtag  = rb_tag;
     assign way_setD  = (|wb_wstrb) ? 1        : 
                        (refill_wen && rb_op)  ? 1 : 0   ;
     
@@ -334,17 +336,17 @@ module Cache(
     assign way0_load_word = way0_rdata[rb_offset[3:2]*32 +: 32];
     assign way1_load_word = way1_rdata[rb_offset[3:2]*32 +: 32];
     assign rdata = {32{way0_hit}} & way0_load_word | {32{way1_hit}} & way1_load_word | {32{!way0_hit & !way1_hit}} & ret_data;
-    assign replace_data = (way_to_replace == 0) ? way0_load_word : way1_load_word;
+    assign replace_data = (way_to_replace == 0) ? way0_rdata : way1_rdata;
     assign replace_dirt = (way_to_replace == 0) ? way0_D : way1_D;
 
-    assign addr_ok = (m_status == `IDLE) | (m_status == `LOOKUP && Cache_hit && valid && !Hazard);      // | 后面的条件还需加入 !Write_Hazard
+    assign addr_ok = (m_status == `IDLE && !Hazard) | (m_status == `LOOKUP && Cache_hit && valid && !Hazard);      // | 后面的条件还需加入 !Write_Hazard
     assign data_ok = (m_status == `LOOKUP && Cache_hit) | (m_status == `LOOKUP && rb_op) |
                      (m_status == `REFILL && ret_valid && ret_num == rb_offset[3:2] && !rb_op) | 
                      (m_status == `REFILL && ret_valid && rb_uncache && !rb_op);
                                                             // 待填充的条件是Miss Buffer中记录的返回字个数与Cache缺失地址的[3:2]相等
     assign rd_req = (m_status == `REPLACE && !(rb_uncache && rb_op));                 // 在REPLACE阶段进行脏位的写回 并且随时发出读取替换数据的读请求(AXI 总线的 rd_rdy不一定接收)
     assign rd_type = (rb_uncache) ? 3'b010 : 3'b100;           // uncache的读，读一个字节，否则读一个cache行
-    assign rd_addr = (rb_uncache) ? {rb_tag, rb_index, rb_offset}
+    assign rd_addr = (rb_uncache) ? {rb_tag, rb_index, rb_offset[3:2], 2'b00}   // 由于uncache读都是读一个字节，所以进行了字节对齐处理
                                   : {rb_tag, rb_index, 4'b0000} ;
     // wr_req
     always@(posedge clk) begin

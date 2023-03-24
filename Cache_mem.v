@@ -53,7 +53,7 @@ module Cache_mem(
     end
     assign D = D_file[index];
 
-    wire wea = (hit | refill) ? |wstrb : 0;
+    wire wea = refill; //refill?
 
     TagV_RAM TagV (
         .clka   (clk        ),                                 // input wire clka
@@ -64,9 +64,8 @@ module Cache_mem(
     );
 
 
-    wire [3:0] wea0 = (hit && offset[3:2] == 2'b00)    ? wstrb :
-                (refill && offset[3:2] != 2'b00) ? 4'b1111 : 
-                (refill && offset[3:2] == 2'b00) ? wstrb : 0;
+    wire [3:0] wea0 = (hit && offset[3:2] == 2'b00) ? wstrb :
+                      (refill) ? 4'b1111 : 0;
     wire [31:0] dina0 = (hit) ? w_data : refill_data[31:0];
     Bank_RAM bank0 (
         .clka   (clk        ),                  // input wire clka
@@ -76,9 +75,8 @@ module Cache_mem(
         .douta  (rdata[31:0])          // output wire [31 : 0] douta
     );
 
-    wire [3:0] wea1 = (hit && offset[3:2] == 2'b01)    ? wstrb :
-                (refill && offset[3:2] != 2'b01) ? 4'b1111 : 
-                (refill && offset[3:2] == 2'b01) ? wstrb : 0;
+    wire [3:0] wea1 = (hit && offset[3:2] == 2'b01) ? wstrb :
+                      (refill) ? 4'b1111 : 0;
     wire [31:0] dina1 = (hit) ? w_data : refill_data[63:32];
     Bank_RAM bank1 (
         .clka   (clk        ),          // input wire clka
@@ -88,9 +86,8 @@ module Cache_mem(
         .douta  (rdata[63:32])          // output wire [31 : 0] douta
     );
 
-    wire [3:0] wea2 = (hit && offset[3:2] == 2'b10)    ? wstrb :
-                (refill && offset[3:2] != 2'b10) ? 4'b1111 : 
-                (refill && offset[3:2] == 2'b10) ? wstrb : 0;
+    wire [3:0] wea2 = (hit && offset[3:2] == 2'b10) ? wstrb :
+                      (refill) ? 4'b1111 : 0;
     wire [31:0] dina2 = (hit) ? w_data : refill_data[95:64];
     Bank_RAM bank2 (
         .clka   (clk        ),          // input wire clka
@@ -100,9 +97,8 @@ module Cache_mem(
         .douta  (rdata[95:64])          // output wire [31 : 0] douta
     );
 
-    wire [3:0] wea3 = (hit && offset[3:2] == 2'b11)    ? wstrb :
-                (refill && offset[3:2] != 2'b11) ? 4'b1111 : 
-                (refill && offset[3:2] == 2'b11) ? wstrb : 0;
+    wire [3:0] wea3 = (hit && offset[3:2] == 2'b11) ? wstrb :
+                      (refill) ? 4'b1111 : 0;
     wire [31:0] dina3 = (hit) ? w_data : refill_data[127:96];
     Bank_RAM bank3 (
         .clka   (clk        ),           // input wire clka

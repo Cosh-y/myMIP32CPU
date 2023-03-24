@@ -95,25 +95,7 @@ module CPU(
 	reg [31:0] s_signExt, s_DInst, s_realRd1;
 	// 用一组触发器保存跳转控制信号，以在跳转指令离开D级且延迟槽指令仍在F级未被读取的情况下正确跳转
 	always@(posedge clk) begin
-		if(backD || jump || branch || nbranch || gez_br || lz_br || gz_br || lez_br || Return) begin
-			s_backD 		  <= backD;
-			s_jump 			  <= jump;
-			s_branch 		  <= branch;
-			s_eq		 	  <= eq;
-			s_nbranch 		  <= nbranch;
-			s_gez_br 		  <= gez_br;
-			s_greater_eq_zero <= greater_eq_zero;
-			s_lz_br 		  <= lz_br;
-			s_gz_br 		  <= gz_br;
-			s_greater_zero 	  <= greater_zero;
-			s_lez_br 		  <= lez_br;
-			s_Return 		  <= Return;
-			s_signExt 		  <= signExt;
-			s_DInst 		  <= DInst;
-			s_realRd1 		  <= realRd1;
-			if(!backD) s_BD   <= 1;
-		end
-		else if(validin && F_allowin) begin
+		if(validin && F_allowin) begin
 			s_backD 		  <= 0;
 			s_jump 			  <= 0;
 			s_branch 		  <= 0;
@@ -130,6 +112,24 @@ module CPU(
 			s_DInst 		  <= 0;
 			s_realRd1		  <= 0;
 			s_BD 			  <= 0;
+		end
+		else if(backD || jump || branch || nbranch || gez_br || lz_br || gz_br || lez_br || Return) begin
+			s_backD 		  <= backD;
+			s_jump 			  <= jump;
+			s_branch 		  <= branch;
+			s_eq		 	  <= eq;
+			s_nbranch 		  <= nbranch;
+			s_gez_br 		  <= gez_br;
+			s_greater_eq_zero <= greater_eq_zero;
+			s_lz_br 		  <= lz_br;
+			s_gz_br 		  <= gz_br;
+			s_greater_zero 	  <= greater_zero;
+			s_lez_br 		  <= lez_br;
+			s_Return 		  <= Return;
+			s_signExt 		  <= signExt;
+			s_DInst 		  <= DInst;
+			s_realRd1 		  <= realRd1;
+			if(!backD) s_BD   <= 1;
 		end
 	end
 /******                F                  ******/
@@ -170,19 +170,19 @@ module CPU(
 			else if((branch && eq) || (!eq && nbranch)		  ) begin
 				pc <= pc + (signExt << 2);
 			end
-			else if((s_branch && s_eq) || (!s_eq && s_nbranch)) begin
+			else if((s_branch && s_eq && !branch) || (!s_eq && s_nbranch && !nbranch)) begin
 				pc <= pc + (s_signExt << 2);
 			end
 			else if((gez_br && greater_eq_zero) || (!greater_eq_zero && lz_br)		  ) begin
 				pc <= pc + (signExt << 2);
 			end
-			else if((s_gez_br && s_greater_eq_zero) || (!s_greater_eq_zero && s_lz_br)) begin
+			else if((s_gez_br && s_greater_eq_zero && !gez_br) || (!s_greater_eq_zero && s_lz_br && !lz_br)) begin
 				pc <= pc + (s_signExt << 2);
 			end
 			else if((gz_br && greater_zero) || (!greater_zero && lez_br)		) begin
 				pc <= pc + (signExt << 2);
 			end
-			else if((s_gz_br && s_greater_zero) || (!s_greater_zero && s_lez_br)) begin
+			else if((s_gz_br && s_greater_zero && !gz_br) || (!s_greater_zero && s_lez_br && !lez_br)) begin
 				pc <= pc + (s_signExt << 2);
 			end
 			else if(Return  ) begin
@@ -207,11 +207,11 @@ module CPU(
 		if(reset || respon) begin			// 重置时发出请求
 			ins_inst_req <= 1;
 		end
-		else if(inst_addr_ok) begin			// 请求已被接收，停止请求
-			ins_inst_req <= 0;
-		end
 		else if(validin && F_allowin) begin	// 允许下一条指令进入F级，发出请求
 			ins_inst_req <= 1;
+		end
+		else if(inst_addr_ok) begin			// 请求已被接收，停止请求
+			ins_inst_req <= 0;
 		end
 	end
 	assign inst_req = ins_inst_req & !respon;
@@ -549,8 +549,28 @@ module CPU(
 /******                    E                  ******/
 	wire [31:0] RtoA, A, RtoB, B, ALUoutE, LOE, HIE;
 	wire over;
+	reg [31:0] s_wdW;		// 保存wdW向GRF写入的值
+	reg need_GRF_to_A;		// 需要从GRF向后把值传递到E级
+	reg need_GRF_to_B;
+	always@(posedge clk) begin
+		if (reset | (M_allowin)) begin
+			need_GRF_to_A <= 0;
+		end
+		else if (ALURAW1 == `wdW_ALUAB && E_valid && !M_allowin) begin
+			need_GRF_to_A <= 1;
+			s_wdW <= wdW;
+		end
+		if (reset | (M_allowin)) begin
+			need_GRF_to_B <= 0;
+		end
+		if (ALURAW2 == `wdW_ALUAB && E_valid && !M_allowin) begin
+			need_GRF_to_B <= 1;
+			s_wdW <= wdW;
+		end
+	end
 	
-	assign RtoA = (ALURAW1 == `none) ? rd1E :
+	assign RtoA = (need_GRF_to_A) ? s_wdW :
+				  (ALURAW1 == `none) ? rd1E :
 				  (ALURAW1 == `ALUM_ALUAB) ? ALUoutM :
 				  (ALURAW1 == `wdW_ALUAB) ? wdW :
 				  (ALURAW1 == `LAddrM_ALUAB) ? linkAddrM :
@@ -559,7 +579,8 @@ module CPU(
 				  (ALURAW1 == `MOutM_ALUAB) ? MemOutM : 0;
 	assign A = (RorSaE == 0) ? RtoA : {27'b0, saE};
 
-	assign RtoB = (ALURAW2 == `none) ? rd2E :
+	assign RtoB = (need_GRF_to_B) ? s_wdW :
+				  (ALURAW2 == `none) ? rd2E :
 				  (ALURAW2 == `ALUM_ALUAB) ? ALUoutM :
 				  (ALURAW2 == `wdW_ALUAB) ? wdW :
 				  (ALURAW2 == `LAddrM_ALUAB) ? linkAddrM :
